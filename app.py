@@ -1,51 +1,95 @@
-import time
-import pandas as pd
-import requests
-import streamlit as st
+import network, time, ujson
+from machine import Pin
+import dht
+from umqtt.simple import MQTTClient
 
-# asumsi BASE, DEVICE, VAR, HEADERS sudah didefinisikan seperti di kode kamu
+# ====== KONFIGURASI ======
+SSID = "LABCOM MAN 1 Kota Sukabumi"
+PASSWORD = "@Userlabcom1234"
 
-def now_ms():
-    return int(time.time() * 1000)
+TOKEN = "BBUS-By0MuOFjSKRYVI4fGEKIj34EFUigqd"  # Ubidots TOKEN = username MQTT
+DEVICE_LABEL = "smallow"                        # label device di Ubidots
+VAR_TEMP = "temperature"                        # label variabel suhu
 
-@st.cache_data(ttl=15)
-def fetch_values(limit=200, days=7):
-    """
-    Ambil data aman dalam window 'days' terakhir untuk menghindari 403 retention.
-    Juga sediakan fallback ke /lv (last value) jika /values gagal.
-    """
-    end = now_ms()
-    start = end - days * 24 * 60 * 60 * 1000  # ms
-    params = {
-        "page_size": min(limit, 200),  # batas aman Ubidots
-        "start": start,
-        "end": end
-        # bisa tambah "aggregation":"avg","resolution":"1h" jika perlu agregasi
-    }
+MQTT_BROKER = "industrial.api.ubidots.com"
+MQTT_PORT   = 1883
+CLIENT_ID   = b"esp32-" + str(time.ticks_ms()).encode()
+TOPIC       = b"/v1.6/devices/" + DEVICE_LABEL.encode()  # publish topic
 
-    url_values = f"{BASE}/api/v1.6/devices/{DEVICE}/{VAR}/values"
-    r = requests.get(url_values, headers=HEADERS, params=params, timeout=12)
+READ_PERIOD = 10   # detik, interval kirim
 
-    # Jika retention still trigger (403) atau error lain, fallback ke /lv
-    if r.status_code == 403 or r.status_code == 404:
-        url_lv = f"{BASE}/api/v1.6/devices/{DEVICE}/{VAR}/lv"
-        r2 = requests.get(url_lv, headers=HEADERS, timeout=10)
-        if r2.status_code != 200:
-            raise RuntimeError(f"HTTP {r2.status_code} (lv): {r2.text[:300]}")
-        last = r2.json()  # {"value":..., "timestamp":...}
-        df = pd.DataFrame([{
-            "time": pd.to_datetime(last["timestamp"], unit="ms"),
-            "value": last["value"]
-        }])
-        return {"fallback":"lv","raw":last}, df
+# ====== WIFI ======
+def connect_wifi():
+    sta = network.WLAN(network.STA_IF)
+    sta.active(True)
+    if not sta.isconnected():
+        print("Menyambungkan Wi-Fi...")
+        sta.connect(SSID, PASSWORD)
+        t0 = time.ticks_ms()
+        while not sta.isconnected():
+            if time.ticks_diff(time.ticks_ms(), t0) > 15000:
+                raise RuntimeError("Timeout Wi-Fi")
+            time.sleep(0.2)
+    print("Wi-Fi OK:", sta.ifconfig())
 
-    if r.status_code != 200:
-        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+# ====== DHT11 ======
+sensor = dht.DHT11(Pin(4))
 
-    data = r.json()
-    results = data.get("results", [])
-    rows = [{
-        "time": pd.to_datetime(it["timestamp"], unit="ms"),
-        "value": it["value"]
-    } for it in results[::-1]]  # urut naik waktu
-    return data, pd.DataFrame(rows)
+def read_temp():
+    # coba beberapa kali agar stabil
+    for _ in range(3):
+        try:
+            sensor.measure()
+            t = sensor.temperature()
+            if 0 <= t <= 60:
+                return t
+        except OSError:
+            pass
+        time.sleep(1)
+    raise RuntimeError("Gagal baca DHT11")
+
+# ====== MQTT ======
+def mqtt_connect():
+    # username=TOKEN, password boleh kosong
+    client = MQTTClient(client_id=CLIENT_ID,
+                        server=MQTT_BROKER,
+                        port=MQTT_PORT,
+                        user=TOKEN,
+                        password="",
+                        keepalive=30)
+    client.connect()
+    return client
+
+def publish_temp(client, t):
+    payload = {VAR_TEMP: t}            # {"temperature": 29}
+    msg = ujson.dumps(payload).encode()
+    client.publish(TOPIC, msg)
+    print("Published:", msg)
+
+def main():
+    connect_wifi()
+    client = mqtt_connect()
+    print("MQTT connected → Ubidots")
+    print("Kirim suhu tiap", READ_PERIOD, "detik. Ctrl+C untuk berhenti.")
+
+    while True:
+        try:
+            t = read_temp()
+            print("Suhu:", t, "°C")
+            publish_temp(client, t)
+        except Exception as e:
+            print("Error:", e)
+            # coba perbaiki koneksi MQTT
+            try:
+                client.disconnect()
+            except:
+                pass
+            time.sleep(1)
+            try:
+                client = mqtt_connect()
+                print("Reconnected MQTT")
+            except Exception as e2:
+                print("Gagal reconnect MQTT:", e2)
+        time.sleep(READ_PERIOD)
+
+main()
