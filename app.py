@@ -7,7 +7,7 @@ from umqtt.simple import MQTTClient
 SSID = "LABCOM MAN 1 Kota Sukabumi"
 PASSWORD = "@Userlabcom1234"
 
-TOKEN = "BBUS-By0MuOFjSKRYVI4fGEKIj34EFUigqd"  # Ubidots TOKEN = username MQTT
+TOKEN = "BBUS-VSneubQoTruZl2cRQmpfLKxcSY4KoM"  # Ubidots TOKEN = username MQTT
 DEVICE_LABEL = "smallow"                        # label device di Ubidots
 VAR_TEMP = "temperature"                        # label variabel suhu
 
