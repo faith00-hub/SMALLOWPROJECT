@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 TOKEN = st.secrets.get("UBIDOTS_TOKEN", "")
 DEVICE = st.secrets.get("UBIDOTS_DEVICE", "smallow")
 BASE = st.secrets.get("UBIDOTS_BASE", "https://things.ubidots.com")
-VARS = [v.strip() for v in st.secrets.get("UBIDOTS_VARS", "temperature,humidity,fsr").split(",") if v.strip()]
+VARS = [v.strip() for v in st.secrets.get("UBIDOTS_VARS", "temperature,fsr").split(",") if v.strip()]
 LOCAL_TZ = st.secrets.get("LOCAL_TZ", "Asia/Jakarta")
 
 HEADERS = {"X-Auth-Token": TOKEN, "Content-Type": "application/json"}
