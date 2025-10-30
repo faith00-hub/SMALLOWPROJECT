@@ -8,3 +8,4 @@ pymongo[srv]==4.9.2
 toml==0.10.2
 certifi
 gradio>=4.38.1
+streamlit-autorefresh>=1.0.0
